@@ -9,62 +9,71 @@
 // Include Particle Device OS APIs
 #include "Particle.h"
 
-// Let Device OS manage the connection to the Particle Cloud
+// Device OS config
 SYSTEM_MODE(AUTOMATIC);
-
-// Run the application and system concurrently in separate threads
-SYSTEM_THREAD(ENABLED);
-
-// Show system, cloud connectivity, and application logs over USB
-// View logs with CLI using 'particle serial monitor --follow'
 SerialLogHandler logHandler(LOG_LEVEL_INFO);
 
+// Button + LED pins
+const int BTN_PIN = D3;
+const int LED_PIN = D7;
 
-// variables and constants
+// Servo setup (built-in API)
+Servo lockServo;
+const int SERVO_PIN = A2;          // signal pin
+const int LOCK_POS = 30;           // tune for your mechanism
+const int UNLOCK_POS = 210;        // ~180° rotation
+const int UNLOCK_HOLD_MS = 5000;   // hold unlocked for 5s
 
-const int BTN_PIN = D3;       // button pin
-const int LED_PIN = D7;       // inidcator LED
+// Cloud-visible lock status
+String lockStatus = "LOCKED";      // default state
 
-const int CODE_LEN = 4; //0 = short press, 1 = long press
-const int SECRET_CODE[CODE_LEN] = {0, 1, 1, 0};  // short, long, long, short
+// Code definition
+const int CODE_LEN = 4;
+const int SECRET_CODE[CODE_LEN] = {0, 1, 1, 0};
 
-// timing thresholds, just have to define the shortest and the timeout
+// Timing thresholds
 const unsigned long SHORT_MAX   = 400;
-const unsigned long RESET_IDLE  = 5000; 
+const unsigned long RESET_IDLE  = 5000;
 
+// Button state
+bool buttonPrev = false;
+unsigned long pressStart = 0;
+unsigned long lastEventTime = 0;
 
-bool buttonPrev = false;          // previous sampled state of button
-unsigned long pressStart = 0;     // when the current press started
-unsigned long lastEventTime = 0;  // last time a press was recorded
+// Entered code buffer
+int entered[CODE_LEN];
+int enteredIndex = 0;
 
-int entered[CODE_LEN];            // buffer for entered press sequence
-int enteredIndex = 0;             // how many symbols we've collected so far
-
-
-
+// Forward declarations
 void recordPress(unsigned long durationMs);
 void checkCode();
 void unlockBox();
 void failSignal();
 
-
 void setup() {
-    pinMode(BTN_PIN, INPUT_PULLUP);  // button to GND, so LOW = pressed
+    pinMode(BTN_PIN, INPUT_PULLUP);
     pinMode(LED_PIN, OUTPUT);
 
-    digitalWrite(LED_PIN, LOW);      // start "locked"
-    
-    // Optional: clear entered buffer
+    lockServo.attach(SERVO_PIN);
+    lockServo.write(LOCK_POS);   // start locked
+
+    digitalWrite(LED_PIN, LOW);
+
     for (int i = 0; i < CODE_LEN; i++) {
         entered[i] = -1;
     }
+
+    // Expose lockStatus as a cloud variable
+    Particle.variable("lockStatus", lockStatus);
+
+    // Ensure initial cloud state is correct
+    lockStatus = "LOCKED";
 }
 
 void loop() {
-    bool pressed = (digitalRead(BTN_PIN) == LOW); // pressed when LOW
+    bool pressed = (digitalRead(BTN_PIN) == LOW);
     unsigned long now = millis();
 
-    // if button just changed state
     if (pressed && !buttonPrev) {
         pressStart = now;
     }
@@ -74,7 +83,6 @@ void loop() {
         recordPress(duration);
     }
 
-    // reset if idle too long
     if (enteredIndex > 0 && (now - lastEventTime > RESET_IDLE)) {
         enteredIndex = 0;
         for (int i = 0; i < CODE_LEN; i++) {
@@ -85,38 +93,21 @@ void loop() {
     buttonPrev = pressed;
 }
 
-
 void recordPress(unsigned long durationMs) {
-    if (enteredIndex >= CODE_LEN) {
-        return;
-    }
+    if (enteredIndex >= CODE_LEN) return;
 
-    int symbol;
-    // short press: <= SHORT_MAX
-    // long press:  > SHORT_MAX
-    if (durationMs <= SHORT_MAX) {
-        symbol = 0;  // short
-    } else {
-        symbol = 1;  // long
-    }
+    int symbol = (durationMs <= SHORT_MAX) ? 0 : 1;
 
     entered[enteredIndex++] = symbol;
     lastEventTime = millis();
 
-    // When we have a full sequence, check it
     if (enteredIndex == CODE_LEN) {
         checkCode();
     }
 }
 
-
-
-// Comppare code 
-
-
 void checkCode() {
     bool match = true;
-
     for (int i = 0; i < CODE_LEN; i++) {
         if (entered[i] != SECRET_CODE[i]) {
             match = false;
@@ -130,7 +121,6 @@ void checkCode() {
         failSignal();
     }
 
-    //reset 
     enteredIndex = 0;
     for (int i = 0; i < CODE_LEN; i++) {
         entered[i] = -1;
@@ -138,13 +128,21 @@ void checkCode() {
 }
 
 void unlockBox() {
-    // TODO: implement unlocking mechanism
-    // for now just turn on LED
     digitalWrite(LED_PIN, HIGH);
+
+    // Update cloud status
+    lockStatus = "UNLOCKED";
+
+    lockServo.write(UNLOCK_POS);
+
+    delay(300);
 }
 
 void failSignal() {
-    // incorrect just flashes LED
+    // On failure we treat the box as locked
+    lockStatus = "LOCKED";
+
+    lockServo.write(LOCK_POS);
     for (int i = 0; i < 3; i++) {
         digitalWrite(LED_PIN, HIGH);
         delay(100);
@@ -152,4 +150,5 @@ void failSignal() {
         delay(100);
     }
 }
+
 
