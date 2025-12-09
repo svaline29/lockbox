@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Lockbox Status</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background-color: #0f172a;
+      color: #e5e7eb;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .card {
+      background-color: #020617;
+      padding: 24px 32px;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      text-align: center;
+      min-width: 280px;
+    }
+    .status-label {
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #9ca3af;
+    }
+    .status-value {
+      margin-top: 12px;
+      font-size: 2rem;
+      font-weight: 600;
+      word-break: break-word;
+    }
+    .status-badge {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 6px 12px;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      border: 1px solid transparent;
+    }
+    .locked {
+      background-color: rgba(248,113,113,0.2);
+      color: #fecaca;
+      border-color: rgba(248,113,113,0.5);
+    }
+    .unlocked {
+      background-color: rgba(34,197,94,0.2);
+      color: #bbf7d0;
+      border-color: rgba(34,197,94,0.5);
+    }
+    .meta {
+      margin-top: 8px;
+      font-size: 0.75rem;
+      color: #6b7280;
+      max-width: 320px;
+      word-break: break-word;
+    }
+    button {
+      margin-top: 20px;
+      padding: 8px 16px;
+      border-radius: 9999px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 500;
+      background: #1d4ed8;
+      color: white;
+    }
+    button:hover {
+      background: #2563eb;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="status-label">Lockbox Status</div>
+    <div id="status" class="status-value">Loading...</div>
+    <div id="badge" class="status-badge">Unknown</div>
+    <div id="meta" class="meta"></div>
+    <button type="button" onclick="fetchStatus()">Refresh</button>
+  </div>
+
+  <script>
+    // === CONFIG: FILL THESE IN ===
+    const DEVICE_ID = "0a10aced202194944a0698a4";        // 24-char hex from Particle console
+    const ACCESS_TOKEN = "48f7550235ac82211aadbc68e3c897d144d75793";  // from Particle access tokens
+    const VARIABLE_NAME = "lockStatus";             // must match Particle.variable name
+
+    async function fetchStatus() {
+      const statusEl = document.getElementById("status");
+      const badgeEl = document.getElementById("badge");
+      const metaEl = document.getElementById("meta");
+
+      statusEl.textContent = "Loading...";
+      badgeEl.textContent = "Loading...";
+      badgeEl.className = "status-badge";
+      metaEl.textContent = "";
+
+      try {
+        const url = `https://api.particle.io/v1/devices/${DEVICE_ID}/${VARIABLE_NAME}`;
+
+        console.log("Requesting:", url);
+
+        const res = await fetch(url, {
+          method: "GET",
+          headers: {
+            "Authorization": "Bearer " + ACCESS_TOKEN,
+            "Accept": "application/json"
+          }
+        });
+
+        const bodyText = await res.text();
+        console.log("HTTP status:", res.status);
+        console.log("Raw response body:", bodyText);
+
+        if (!res.ok) {
+          statusEl.textContent = "Error";
+          badgeEl.textContent = "Error";
+          badgeEl.className = "status-badge";
+          metaEl.textContent = `HTTP ${res.status}: ${bodyText}`;
+          throw new Error(`HTTP ${res.status}: ${bodyText}`);
+        }
+
+        const data = JSON.parse(bodyText);
+        console.log("Parsed JSON:", data);
+
+        const raw = data.result;
+        const valueUpper = String(raw).toUpperCase();
+
+        // Show raw value
+        statusEl.textContent = String(raw);
+
+        // Handle both string and numeric formats
+        const isLocked =
+          valueUpper === "LOCKED" || raw === 0 || raw === "0" || valueUpper === "FALSE";
+        const isUnlocked =
+          valueUpper === "UNLOCKED" || raw === 1 || raw === "1" || valueUpper === "TRUE";
+
+        if (isLocked) {
+          badgeEl.textContent = "Locked";
+          badgeEl.className = "status-badge locked";
+        } else if (isUnlocked) {
+          badgeEl.textContent = "Unlocked";
+          badgeEl.className = "status-badge unlocked";
+        } else {
+          badgeEl.textContent = "Unknown";
+          badgeEl.className = "status-badge";
+        }
+        if (isLocked) {
+        document.body.style.backgroundColor = "#450a0a"; // deep red
+        } else if (isUnlocked) {
+        document.body.style.backgroundColor = "#052e16"; // deep green
+        } else {
+        document.body.style.backgroundColor = "#0f172a"; // default blue/gray
+        }
+
+        const now = new Date();
+        metaEl.textContent = `Last updated: ${now.toLocaleTimeString()}`;
+      } catch (err) {
+        console.error("Fetch error:", err);
+        if (metaEl.textContent === "") {
+          metaEl.textContent = err.message || "Unknown error";
+        }
+      }
+    }
+
+    fetchStatus();
+    setInterval(fetchStatus, 10000);
+  </script>
+</body>
+</html>
